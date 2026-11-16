@@ -1,0 +1,46 @@
+name: GPU Sim If Probe
+
+# Runs the CUDA-vs-CPU parity tests (the `#[cfg(all(test, feature = "cuda"))]`
+# modules) on a simulated NVIDIA H100 (https://github.com/pantheongpu/pantheonsim),
+# so they execute on a hosted runner instead of only compiling
+# (rust_lint.yml `cuda-feature-check`). Opt-in: run it from the Actions tab or
+# add the `ci:gpu-sim` label to a PR. A functional simulator checks results,
+# not timing or hardware behaviour, so it complements the Jetson runs of
+# scripts/cuda-oxide/orin-test-bench.sh and does not replace them.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 3
+  CRATES: -p kornia-tensor -p kornia-image -p kornia-imgproc -p kornia-3d -p kornia-oxide-kernels
+  FEATURES: kornia-tensor/cuda,kornia-image/cuda,kornia-imgproc/cuda,kornia-3d/cuda,kornia-oxide-kernels/cuda,kornia-oxide-kernels/ptx
+  # Set explicitly so a missing PTX fails the build instead of building the
+  # stub, with which the loader tests pass and gray_from_rgb_u8 runs on NVRTC.
+  KORNIA_OXIDE_PTX: ${{ github.workspace }}/crates/kornia-oxide-kernels/kernels.ptx
+
+jobs:
+  cuda-tests:
+    name: CUDA tests on a simulated H100
+    # Labelling with another label must not start (or cancel) a run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'ci:gpu-sim') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'ci:gpu-sim'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - run: |
+          echo started
+          sleep 100
+          echo finished
